@@ -71,7 +71,7 @@
         }
     </style>
 </head>
-<body class="text-gray-800">
+<body>
 
     <div class="container mx-auto p-4 max-w-7xl">
         <header class="text-center my-6">
@@ -118,8 +118,8 @@
                     </div>
 
                     <div class="flex-grow flex items-center justify-center relative bg-slate-100 rounded-2xl">
-                         <div id="canvas-wrapper" class="relative" style="width: 400px; height: 700px; max-width: 100%; max-height: 100%;">
-                             <div id="character-guide" class="absolute inset-0 bg-no-repeat bg-center bg-contain opacity-40 pointer-events-none"></div>
+                          <div id="canvas-wrapper" class="relative" style="width: 400px; height: 700px; max-width: 100%; max-height: 100%;">
+                               <div id="character-guide" class="absolute inset-0 bg-no-repeat bg-center bg-contain opacity-40 pointer-events-none"></div>
                             <canvas id="drawing-canvas" width="400" height="700" class="absolute top-0 left-0"></canvas>
                         </div>
                     </div>
@@ -138,9 +138,17 @@
         </main>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/pako@2.1.0/dist/pako.min.js"></script>
+
     <script>
         // --- IMAGE ASSET GUIDELINES ---
-        /* ... (guidelines remain the same) ... */
+        /*
+        - Character base images should be 400x700px.
+        - Clothing and accessory images should be 400x700px with transparent backgrounds.
+        - Ensure all image paths in the `assets` object are correct and relative to your project structure.
+        - The `assets` object uses keys for internal reference and `name` for display.
+        - For custom drawings, the canvas is set to 400x700 to match the asset dimensions.
+        */
 
         // --- DATA ---
         const assets = {
@@ -185,8 +193,8 @@
 
         // --- STATE ---
         let currentLook = {
-            character: 'char1', hair: 'brown_bangs', shirts: 'tee', bottoms: 'shorts',
-            dresses: null, shoes: 'sneakers', jewelry: null,
+            character: 'char1', hair: null, shirts: null, bottoms: null,
+            dresses: null, shoes: null, jewelry: null,
         };
         let activeCategory = 'hair';
         let isDrawing = false;
@@ -216,7 +224,7 @@
         const ctx = drawingCanvas.getContext('2d');
 
         // --- RENDER FUNCTIONS ---
-        function renderCharacter() { /* ... (function is unchanged) ... */
+        function renderCharacter() {
              characterDisplay.innerHTML = '';
              const baseCharId = currentLook.character;
              const baseCharAsset = assets.characters[baseCharId];
@@ -244,7 +252,7 @@
                  }
              });
         }
-        function createCharacterSelectors() { /* ... (function is unchanged) ... */
+        function createCharacterSelectors() {
              let buttonsHTML = '';
              for (const key in assets.characters) {
                  const character = assets.characters[key];
@@ -274,7 +282,7 @@
             categoryTabsContainer.innerHTML = tabsHTML;
         }
 
-        function renderWardrobeItems(categoryKey) { /* ... (function is unchanged) ... */
+        function renderWardrobeItems(categoryKey) {
              const items = assets[categoryKey];
              let itemsHTML = '<div class="flex flex-wrap gap-4">';
              itemsHTML += `
@@ -297,7 +305,7 @@
              itemPanel.innerHTML = itemsHTML;
              updateActiveButtons();
         }
-        function updateActiveButtons() { /* ... (function is unchanged) ... */
+        function updateActiveButtons() {
              document.querySelectorAll('.character-selector').forEach(btn => {
                  btn.classList.toggle('active', currentLook.character === btn.dataset.char);
              });
@@ -315,16 +323,12 @@
         }
 
         // --- NEW DRAWING MODE FUNCTIONS ---
-
         function showView(viewName) {
             if (viewName === 'drawing') {
                 wardrobeContainer.classList.add('hidden');
                 drawingContainer.classList.remove('hidden');
                 drawingContainer.classList.add('flex');
                 document.getElementById('draw-mode-btn').classList.add('active');
-
-
-                // Set character guide background
                 const charImg = assets.characters[currentLook.character].img;
                 characterGuide.style.backgroundImage = `url(${charImg})`;
             } else { // 'wardrobe'
@@ -333,7 +337,7 @@
                 drawingContainer.classList.remove('flex');
                 document.getElementById('draw-mode-btn').classList.remove('active');
             }
-             updateActiveButtons();
+            updateActiveButtons();
         }
 
         function populateCategorySelect() {
@@ -420,42 +424,70 @@
         }
 
 
+        // --- URL Compression & Decompression Functions ---
+        function compressLook() {
+            try {
+                const jsonString = JSON.stringify(currentLook);
+                const compressed = pako.deflate(jsonString, { to: 'string' });
+                // Convert to Base64 to make it URL-safe
+                return btoa(compressed);
+            } catch (e) {
+                console.error('Compression failed', e);
+                return '';
+            }
+        }
+
+        function decompressLook(compressedString) {
+            try {
+                const decompressed = pako.inflate(atob(compressedString), { to: 'string' });
+                return JSON.parse(decompressed);
+            } catch (e) {
+                console.error('Decompression failed', e);
+                return null;
+            }
+        }
+
         // --- UTILITY & EVENT HANDLERS ---
-        function updateURL() { /* ... (function is unchanged) ... */
-             const params = new URLSearchParams();
-             for (const key in currentLook) {
-                 params.set(key, currentLook[key] === null ? 'null' : currentLook[key]);
-             }
-             const newUrl = `${window.location.pathname}?${params.toString()}`;
-             window.history.pushState({ path: newUrl }, '', newUrl);
+        function updateURL() {
+            const compressedState = compressLook();
+            const newUrl = `${window.location.pathname}?look=${compressedState}`;
+            window.history.pushState({ path: newUrl }, '', newUrl);
         }
-        function loadLookFromURL() { /* ... (function is unchanged) ... */
-             const params = new URLSearchParams(window.location.search);
-             if (params.toString() === '') return;
-             for (const [key, value] of params.entries()) {
-                 if (currentLook.hasOwnProperty(key)) {
-                     const finalValue = value === 'null' ? null : value;
-                     if (key === 'character' && assets.characters[finalValue]) {
-                          currentLook[key] = finalValue;
-                     } else if (assets[key] && (assets[key][finalValue] || finalValue === null)) {
-                          currentLook[key] = finalValue;
-                     }
-                 }
-             }
+
+        function loadLookFromURL() {
+            const params = new URLSearchParams(window.location.search);
+            const compressedLook = params.get('look');
+
+            if (compressedLook) {
+                const decodedLook = decompressLook(compressedLook);
+                if (decodedLook) {
+                    Object.assign(currentLook, decodedLook);
+                }
+            } else {
+                 // Reset all clothing items if no 'look' is present
+                 Object.keys(currentLook).forEach(key => {
+                     if(key !== 'character') currentLook[key] = null;
+                 });
+                 currentLook.character = 'char1'; // Default character
+            }
         }
-        function handleShareClick() { /* ... (function is unchanged) ... */
-             navigator.clipboard.writeText(window.location.href).then(() => {
-                 const originalText = shareButton.innerHTML;
-                 shareButton.innerHTML = '✅ Copied!';
-                 shareButton.disabled = true;
-                 setTimeout(() => {
-                     shareButton.innerHTML = originalText;
-                     shareButton.disabled = false;
-                 }, 2000);
-             }).catch(err => {
-                 console.error('Failed to copy URL: ', err);
-                 alert('Could not copy URL to clipboard.');
-             });
+
+        function handleShareClick() {
+            const compressedState = compressLook();
+            const shareUrl = `${window.location.protocol}//${window.location.host}${window.location.pathname}?look=${compressedState}`;
+
+            navigator.clipboard.writeText(shareUrl).then(() => {
+                const originalText = shareButton.innerHTML;
+                shareButton.innerHTML = '✅ Copied!';
+                shareButton.disabled = true;
+                setTimeout(() => {
+                    shareButton.innerHTML = originalText;
+                    shareButton.disabled = false;
+                }, 2000);
+            }).catch(err => {
+                console.error('Failed to copy URL: ', err);
+                alert('Could not copy URL to clipboard.');
+            });
         }
         function handleCategoryTabClick(event) {
             const button = event.target.closest('.category-tab');
@@ -471,30 +503,30 @@
             }
             updateActiveButtons();
         }
-        function handleWardrobeClick(event) { /* ... (function is unchanged) ... */
-             const button = event.target.closest('.wardrobe-item');
-             if (!button) return;
-             const { category, item } = button.dataset;
-             const newItem = item === 'null' ? null : item;
-             currentLook[category] = newItem;
-             if (category === 'dresses' && newItem !== null) {
-                 currentLook.shirts = null;
-                 currentLook.bottoms = null;
-             }
-             if ((category === 'shirts' || category === 'bottoms') && newItem !== null) {
-                 currentLook.dresses = null;
-             }
-             renderCharacter();
-             updateActiveButtons();
-             updateURL();
+        function handleWardrobeClick(event) {
+            const button = event.target.closest('.wardrobe-item');
+            if (!button) return;
+            const { category, item } = button.dataset;
+            const newItem = item === 'null' ? null : item;
+            currentLook[category] = newItem;
+            if (category === 'dresses' && newItem !== null) {
+                currentLook.shirts = null;
+                currentLook.bottoms = null;
+            }
+            if ((category === 'shirts' || category === 'bottoms') && newItem !== null) {
+                currentLook.dresses = null;
+            }
+            renderCharacter();
+            updateActiveButtons();
+            updateURL();
         }
-        function handleCharacterClick(event) { /* ... (function is unchanged) ... */
-              const button = event.target.closest('.character-selector');
-               if (!button) return;
-               currentLook.character = button.dataset.char;
-               renderCharacter();
-               updateActiveButtons();
-               updateURL();
+        function handleCharacterClick(event) {
+             const button = event.target.closest('.character-selector');
+              if (!button) return;
+              currentLook.character = button.dataset.char;
+              renderCharacter();
+              updateActiveButtons();
+              updateURL();
         }
 
         // --- INITIALIZATION ---
@@ -536,12 +568,19 @@
                  eraserBtn.classList.toggle('active', isErasing);
                  ctx.globalCompositeOperation = isErasing ? 'destination-out' : 'source-over';
             });
+            
+            // Listen for popstate to handle back/forward button events
+            window.addEventListener('popstate', () => {
+                loadLookFromURL();
+                renderCharacter();
+                renderWardrobeItems(activeCategory);
+                updateActiveButtons();
+            });
 
 
             // Initial render
             renderCharacter();
             updateActiveButtons();
-            updateURL();
         }
 
         window.onload = init;
